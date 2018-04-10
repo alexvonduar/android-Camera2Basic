@@ -24,9 +24,16 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.graphics.Point;
+import android.graphics.PointF;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
@@ -44,6 +51,7 @@ import android.media.ImageReader;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.sax.RootElement;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.DialogFragment;
@@ -57,6 +65,7 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.RelativeLayout;
 import android.widget.Toast;
 
 import java.io.File;
@@ -152,6 +161,91 @@ public class Camera2BasicFragment extends Fragment
 
         @Override
         public void onSurfaceTextureUpdated(SurfaceTexture texture) {
+            //float[] rect = mFindHomography.getoverlaprect();
+
+            //Log.d("DEADBEAF","get rect corner " + rect);
+
+            /*
+            int min_x = rect[0] < rect[2] ? rect[0] : rect[2];
+            int max_x = rect[0] > rect[2] ? rect[0] : rect[2];
+            min_x = min_x < rect[4] ? min_x : rect[4];
+            max_x = max_x > rect[4] ? max_x : rect[4];
+            min_x = min_x < rect[6] ? min_x : rect[6];
+            max_x = max_x > rect[6] ? max_x : rect[6];
+
+            int min_y = rect[0] < rect[2] ? rect[0] : rect[2];
+            int max_y = rect[0] > rect[2] ? rect[0] : rect[2];
+            min_y = min_y < rect[4] ? min_y : rect[4];
+            max_y = max_y > rect[4] ? max_y : rect[4];
+            min_y = min_y < rect[6] ? min_y : rect[6];
+            max_y = max_y > rect[6] ? max_y : rect[6];
+
+
+            mDrawTexture.setResults(min_x, min_y, max_x, max_y, rect[8]);
+            */
+            //int num_points = rect.length / 2;
+            //PointF[] points = new PointF[num_points];
+            //for (int i = 0; i < num_points; ++i) {
+            //    points[i] = new PointF(rect[i * 2 + 1], rect[i * 2]);
+            //}
+
+            /*
+            if (!isSameSide(points[0], points[1], points[2], points[3])) {
+                Point t = new Point();
+                t = points[2];
+                points[2] = points[1];
+                points[1] = t;
+            } else if (!isSameSide(points[1], points[2], points[0], points[3])) {
+                Point t = new Point();
+                t = points[2];
+                points[2] = points[3];
+                points[3] = t;
+            }
+            Log.d("DEADBEAF", "reordered" + points[0] + points[1] + points[2] + points[3]);
+            */
+
+            //int valid = rect[num_points - 1] > 0 ? 1 : 0;
+            mDrawTexture.draw();//(points, valid);
+
+        }
+
+        private float d(Point l1, Point l2, Point p)
+        {
+            return ((float)l2.x - (float)l1.x) * ((float)p.y - (float)l1.y) - ((float)l2.y - (float)l1.y) * ((float)p.x - (float)l1.x);
+        }
+        private boolean isSameSide(Point l1, Point l2, Point p1, Point p2)
+        {
+            //
+            float d1 = d(l1, l2, p1);
+            float d2 = d(l1, l2, p2);
+            d1 *= d2;
+            return (d1 > 0) ? true : false;
+        }
+
+    };
+
+    private final TextureView.SurfaceTextureListener mDrawListener
+            = new TextureView.SurfaceTextureListener() {
+
+        @Override
+        public void onSurfaceTextureAvailable(SurfaceTexture texture, int width, int height) {
+            //
+        }
+
+        @Override
+        public void onSurfaceTextureSizeChanged(SurfaceTexture texture, int width, int height) {
+            configureTransform(width, height);
+        }
+
+        @Override
+        public boolean onSurfaceTextureDestroyed(SurfaceTexture texture) {
+            return true;
+        }
+
+        @Override
+        public void onSurfaceTextureUpdated(SurfaceTexture texture) {
+            // TODO:
+            Log.d("DEADBEAF", "update----");
         }
 
     };
@@ -165,6 +259,7 @@ public class Camera2BasicFragment extends Fragment
      * An {@link AutoFitTextureView} for camera preview.
      */
     private AutoFitTextureView mTextureView;
+    private OverlapView mDrawTexture;
 
     /**
      * A {@link CameraCaptureSession } for camera preview.
@@ -243,9 +338,33 @@ public class Camera2BasicFragment extends Fragment
 
         @Override
         public void onImageAvailable(ImageReader reader) {
-            mBackgroundHandler.post(new ImageSaver(reader.acquireNextImage(), mFile));
+            mBackgroundHandler.post(new ImageSaver(reader.acquireLatestImage(), mFile, mFindHomography, mImageReader.getWidth(), mImageReader.getHeight(), true));
         }
 
+    };
+
+    private ImageReader mPreviewReader;
+
+    private final ImageReader.OnImageAvailableListener mOnPreviewAvailableListener
+            = new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            // TODO: finish hear
+            Log.d("DEADBEAF", "get one preview");
+            Image img = null;
+            try {
+                img = reader.acquireLatestImage();
+                if (img != null) {
+                    mBackgroundHandler.post(new ImageSaver(img, mFile, mFindHomography, mPreviewReader.getWidth(), mPreviewReader.getHeight(), false));
+                }
+            } catch (IllegalStateException e) {
+                e.printStackTrace();
+            } finally {
+                //if (img != null) {
+                //    img.close();
+                //}
+            }
+        }
     };
 
     /**
@@ -382,7 +501,7 @@ public class Camera2BasicFragment extends Fragment
      * @return The optimal {@code Size}, or an arbitrary one if none were big enough
      */
     private static Size chooseOptimalSize(Size[] choices, int textureViewWidth,
-            int textureViewHeight, int maxWidth, int maxHeight, Size aspectRatio) {
+                                          int textureViewHeight, int maxWidth, int maxHeight, Size aspectRatio) {
 
         // Collect the supported resolutions that are at least as big as the preview Surface
         List<Size> bigEnough = new ArrayList<>();
@@ -394,7 +513,7 @@ public class Camera2BasicFragment extends Fragment
             if (option.getWidth() <= maxWidth && option.getHeight() <= maxHeight &&
                     option.getHeight() == option.getWidth() * h / w) {
                 if (option.getWidth() >= textureViewWidth &&
-                    option.getHeight() >= textureViewHeight) {
+                        option.getHeight() >= textureViewHeight) {
                     bigEnough.add(option);
                 } else {
                     notBigEnough.add(option);
@@ -428,6 +547,8 @@ public class Camera2BasicFragment extends Fragment
     public void onViewCreated(final View view, Bundle savedInstanceState) {
         view.findViewById(R.id.picture).setOnClickListener(this);
         view.findViewById(R.id.info).setOnClickListener(this);
+        mDrawTexture = view.findViewById(R.id.drawtexture);
+        mDrawTexture.setmFindHomography(mFindHomography);
         mTextureView = (AutoFitTextureView) view.findViewById(R.id.texture);
     }
 
@@ -436,6 +557,9 @@ public class Camera2BasicFragment extends Fragment
         super.onActivityCreated(savedInstanceState);
         mFile = new File(getActivity().getExternalFilesDir(null), "pic.jpg");
     }
+
+
+    private FindHomography mFindHomography;
 
     @Override
     public void onResume() {
@@ -512,6 +636,7 @@ public class Camera2BasicFragment extends Fragment
                 Size largest = Collections.max(
                         Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
                         new CompareSizesByArea());
+                Log.d("DEADBEAF", "size: " + largest);
                 mImageReader = ImageReader.newInstance(largest.getWidth(), largest.getHeight(),
                         ImageFormat.JPEG, /*maxImages*/2);
                 mImageReader.setOnImageAvailableListener(
@@ -579,6 +704,11 @@ public class Camera2BasicFragment extends Fragment
                             mPreviewSize.getHeight(), mPreviewSize.getWidth());
                 }
 
+                mPreviewReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(),
+                        ImageFormat.YUV_420_888, /*maxImages*/2);
+                mPreviewReader.setOnImageAvailableListener(
+                        mOnPreviewAvailableListener, mBackgroundHandler);
+
                 // Check if the flash is supported.
                 Boolean available = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
                 mFlashSupported = available == null ? false : available;
@@ -614,6 +744,7 @@ public class Camera2BasicFragment extends Fragment
                 throw new RuntimeException("Time out waiting to lock camera opening.");
             }
             manager.openCamera(mCameraId, mStateCallback, mBackgroundHandler);
+            mFindHomography.start(mPreviewSize.getWidth(), mPreviewSize.getHeight());
         } catch (CameraAccessException e) {
             e.printStackTrace();
         } catch (InterruptedException e) {
@@ -626,6 +757,7 @@ public class Camera2BasicFragment extends Fragment
      */
     private void closeCamera() {
         try {
+            mFindHomography.stop();
             mCameraOpenCloseLock.acquire();
             if (null != mCaptureSession) {
                 mCaptureSession.close();
@@ -638,6 +770,10 @@ public class Camera2BasicFragment extends Fragment
             if (null != mImageReader) {
                 mImageReader.close();
                 mImageReader = null;
+            }
+            if (null != mPreviewReader) {
+                mPreviewReader.close();
+                mPreviewReader = null;
             }
         } catch (InterruptedException e) {
             throw new RuntimeException("Interrupted while trying to lock camera closing.", e);
@@ -687,9 +823,10 @@ public class Camera2BasicFragment extends Fragment
             mPreviewRequestBuilder
                     = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             mPreviewRequestBuilder.addTarget(surface);
+            mPreviewRequestBuilder.addTarget(mPreviewReader.getSurface());
 
             // Here, we create a CameraCaptureSession for camera preview.
-            mCameraDevice.createCaptureSession(Arrays.asList(surface, mImageReader.getSurface()),
+            mCameraDevice.createCaptureSession(Arrays.asList(surface, mPreviewReader.getSurface(), mImageReader.getSurface()),
                     new CameraCaptureSession.StateCallback() {
 
                         @Override
@@ -924,21 +1061,105 @@ public class Camera2BasicFragment extends Fragment
          * The file we save the image into.
          */
         private final File mFile;
+        private final FindHomography mFindhomography;
+        private final int mWidth;
+        private final int mHeight;
+        private final boolean mStillCapture;
 
-        ImageSaver(Image image, File file) {
+        ImageSaver(Image image, File file, FindHomography findHomography, int width, int height, boolean stillCapture) {
             mImage = image;
             mFile = file;
+            mWidth = width;
+            mHeight = height;
+            mFindhomography = findHomography;
+            mStillCapture = stillCapture;
         }
 
         @Override
         public void run() {
-            ByteBuffer buffer = mImage.getPlanes()[0].getBuffer();
-            byte[] bytes = new byte[buffer.remaining()];
-            buffer.get(bytes);
             FileOutputStream output = null;
+            Image.Plane[] planes = mImage.getPlanes();
+            ByteBuffer buffer = planes[0].getBuffer();
+            byte[] img = new byte[buffer.capacity()];
+            buffer.get(img);
+            int stride = planes[0].getRowStride();
+            Log.d("DEADBEAF", "buffer size " + buffer.capacity() +
+                    " len: " + buffer.remaining() +
+                    " row stride: " + planes[0].getRowStride() +
+                    " pixel stride: " + planes[0].getPixelStride());
             try {
-                output = new FileOutputStream(mFile);
-                output.write(bytes);
+                if (mStillCapture) {
+                    mFindhomography.setreference(img, mWidth, mHeight, stride, buffer.capacity());
+                    output = new FileOutputStream(mFile);
+                    output.write(img);
+                } else {
+                    mFindhomography.gethomography(img, mWidth, mHeight, stride);
+                }
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                mImage.close();
+                if (null != output) {
+                    try {
+                        output.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+
+    }
+
+    /**
+     * Saves a JPEG {@link Image} into the specified {@link File}.
+     */
+    private static class YuvSender implements Runnable {
+
+        /**
+         * The JPEG image
+         */
+        private final Image mImage;
+        /**
+         * The file we save the image into.
+         */
+        private final File mFile;
+        private final FindHomography mFindhomography;
+        private final int mWidth;
+        private final int mHeight;
+        private final boolean mStillCapture;
+
+        YuvSender(Image image, File file, FindHomography findHomography, int width, int height, boolean stillCapture) {
+            mImage = image;
+            mFile = file;
+            mWidth = width;
+            mHeight = height;
+            mFindhomography = findHomography;
+            mStillCapture = stillCapture;
+        }
+
+        @Override
+        public void run() {
+            FileOutputStream output = null;
+            Image.Plane[] planes = mImage.getPlanes();
+            ByteBuffer buffer = planes[0].getBuffer();
+            byte[] img = new byte[buffer.capacity()];
+            buffer.get(img);
+            int stride = planes[0].getRowStride();
+            Log.d("DEADBEAF", "buffer size " + buffer.capacity() +
+                    " len: " + buffer.remaining() +
+                    " row stride: " + planes[0].getRowStride() +
+                    " pixel stride: " + planes[0].getPixelStride());
+            try {
+                if (mStillCapture) {
+                    mFindhomography.setreference(img, mWidth, mHeight, stride, buffer.capacity());
+                    output = new FileOutputStream(mFile);
+                    output.write(img);
+                } else {
+                    mFindhomography.gethomography(img, mWidth, mHeight, stride);
+                }
+
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
