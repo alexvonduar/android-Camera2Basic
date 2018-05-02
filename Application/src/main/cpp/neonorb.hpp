@@ -107,6 +107,7 @@ static inline void paintPoint(uint8_t img[][vstep], int x, int y) {
 static inline int fast_orb_640x480(FAST_NEON_ORB_640x480_8& input, int level, std::vector<cv::KeyPoint>& keypoints, std::vector<uint32_t>& descriptors) {
     std::vector<uint32_t> points;
     //std::vector<uint32_t> descriptors;
+    keypoints.clear();
 
     uint32_t pyramidRow = 0;
     uint8_t * img_ptr = input.img;
