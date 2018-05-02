@@ -205,7 +205,7 @@ public class Camera2BasicFragment extends Fragment
             */
 
             //int valid = rect[num_points - 1] > 0 ? 1 : 0;
-            mDrawTexture.draw();//(points, valid);
+            //mDrawTexture.draw();//(points, valid);
 
         }
 
@@ -259,7 +259,8 @@ public class Camera2BasicFragment extends Fragment
      * An {@link AutoFitTextureView} for camera preview.
      */
     private AutoFitTextureView mTextureView;
-    private OverlapView mDrawTexture;
+    //private OverlapView mDrawTexture;
+    private GLES3JNIView mGLESView;
 
     /**
      * A {@link CameraCaptureSession } for camera preview.
@@ -547,9 +548,10 @@ public class Camera2BasicFragment extends Fragment
     public void onViewCreated(final View view, Bundle savedInstanceState) {
         view.findViewById(R.id.picture).setOnClickListener(this);
         view.findViewById(R.id.info).setOnClickListener(this);
-        mDrawTexture = view.findViewById(R.id.drawtexture);
-        mDrawTexture.setmFindHomography(mFindHomography);
+        //mDrawTexture = view.findViewById(R.id.drawtexture);
+        //mDrawTexture.setmFindHomography(mFindHomography);
         mTextureView = (AutoFitTextureView) view.findViewById(R.id.texture);
+        mGLESView = (GLES3JNIView)view.findViewById(R.id.glview);
     }
 
     @Override
@@ -575,6 +577,11 @@ public class Camera2BasicFragment extends Fragment
         } else {
             mTextureView.setSurfaceTextureListener(mSurfaceTextureListener);
         }
+
+        Log.i(TAG, "DEADBEAF layout " + mTextureView.getWidth() + " " +
+                mTextureView.getLayoutParams().width + " " +
+                mGLESView.getWidth() + " " +
+                mGLESView.getHeight());
     }
 
     @Override
