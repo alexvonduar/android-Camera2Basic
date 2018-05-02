@@ -17,6 +17,9 @@
 
 static const int MAX_LEVEL = 8;
 
+static const int IMG_WIDTH = 640;
+static const int IMG_HEIGHT = 480;
+
 static const int pyramidWidths[MAX_LEVEL] = {
     640,
     533,
@@ -28,7 +31,7 @@ static const int pyramidWidths[MAX_LEVEL] = {
     179
 };
 
-static const int MAX_WIDTH = 640;
+static const int MAX_WIDTH = IMG_WIDTH;
 
 static const int pyramidHeights[MAX_LEVEL] = {
     480,

@@ -19,24 +19,29 @@
 #include "turbojpeg.h"
 
 #include "neonorb.hpp"
+#define ZEYES_LOG_LEVEL ZEYES_LOG_LEVEL_VERBOSE
 
 typedef struct _Image {
     int buffer_size;
     unsigned char *p_jpg;
     cv::Mat data;
     cv::Mat desc;
+    //std::vector<uint32_t> fast_desc;
     std::vector<cv::KeyPoint> keypoints;
     int orig_width;
     int orig_height;
+    //FAST_NEON_ORB_640x480_8 pyramid;
 } Image;
 
-static inline void initImage(Image &img, const int &width, const int &height) {
-    if (img.data.cols != width || img.data.rows != height) {
-        img.data.release();
-    }
+static inline void initImage(Image &img/*, const int &width, const int &height*/) {
+    //if (img.data.cols != width || img.data.rows != height) {
+    //    img.data.release();
+    //}
+    img.data = cv::Mat(IMG_HEIGHT, IMG_WIDTH, CV_8UC1);
 
-    img.data = cv::Mat(height, width, CV_8UC1);
+    //img.data = cv::Mat(IMG_HEIGHT, IMG_WIDTH, CV_8UC1, img.pyramid.img);
     img.desc.release();
+    //img.fast_desc.clear();
     img.keypoints.clear();
     img.buffer_size = 0;
     img.p_jpg = NULL;
@@ -45,6 +50,7 @@ static inline void initImage(Image &img, const int &width, const int &height) {
 static inline void deinitImage(Image &img) {
     img.data.release();
     img.desc.release();
+    //img.fast_desc.clear();
     img.keypoints.clear();
     if (img.p_jpg != NULL) {
         delete[] img.p_jpg;
@@ -60,6 +66,7 @@ static bool running = false;
 static bool first = true;
 static cv::Ptr<cv::ORB> orb;
 static cv::Ptr<cv::BFMatcher> matcher;
+static cv::Ptr<cv::FlannBasedMatcher> flann;
 static pthread_t t_feature;
 static pthread_t t_matching;
 static pthread_t t_decoder;
@@ -123,24 +130,30 @@ void *feature(void *id) {
             }
 
             if (idx != -1) {
-                ZEYES_LOG_DEBUG("DEADBEAF start feature extraction\n");
+                ZEYES_LOG_INFO("DEADBEAF start feature extraction\n");
                 if (idx == 0) {
                     pthread_mutex_lock(&reference_mtx);
                 }
                 orb->detectAndCompute(buffers[idx].data, cv::Mat(), buffers[idx].keypoints,
                                       buffers[idx].desc);
+                //fast_orb_640x480_downscale(buffers[idx].pyramid, 8);
+                //fast_orb_640x480(buffers[idx].pyramid, 8, buffers[idx].keypoints, buffers[idx].fast_desc);
+                ///*buffers[idx].desc = */ cv::Mat desc(buffers[idx].keypoints.size(), 32, CV_8UC1, buffers[idx].fast_desc.data());
+                if(buffers[idx].desc.type()!=CV_32F) {
+                    buffers[idx].desc.convertTo(buffers[idx].desc, CV_32F);
+                }
                 if (idx == 0) {
                     pthread_mutex_unlock(&reference_mtx);
                 }
-                ZEYES_LOG_DEBUG("DEADBEAF extracted %d features\n", buffers[idx].keypoints.size());
+                ZEYES_LOG_INFO("DEADBEAF extracted %d features\n", buffers[idx].keypoints.size());
 
                 if (idx == 0) { // reference images
-                    ZEYES_LOG_DEBUG("DEADBEAF got one reference\n");
+                    ZEYES_LOG_INFO("DEADBEAF got one reference\n");
                     //cv::imwrite("/storage/emulated/0/Android/data/com.example.android.camera2basic/files/ref.jpg", buffers[idx].data);
                     //cv::imwrite("/storage/emulated/0/Android/data/com.example.android.camera2basic/files/data.jpg", buffers[3].data);
                     first = false;
                 } else {
-                    ZEYES_LOG_DEBUG("DEADBEAF info matching\n");
+                    ZEYES_LOG_INFO("DEADBEAF info matching\n");
                     //std::unique_lock<std::mutex> lock(matching_mtx);
                     pthread_mutex_lock(&matching_mtx);
                     matching_list.push_back(idx);
@@ -273,7 +286,8 @@ void *matching(void *id) {
 
                 //std::unique_lock<std::mutex> lock(reference_mtxs[row]);
                 pthread_mutex_lock(&reference_mtx);
-                matcher->match(buffers[0].desc, buffers[idx].desc, matchings);
+                //matcher->match(buffers[0].desc, buffers[idx].desc, matchings);
+                flann->match(buffers[0].desc, buffers[idx].desc, matchings);
                 //matcher.match(buffers[row].desc, buffers[idx].desc, matchings);
                 //pthread_mutex_unlock(&reference_mtx);
                 //}
@@ -593,7 +607,7 @@ static inline void init_start_rect(const int &width, const int &height) {
     }
 }
 
-static inline void init(const int &width, const int &height) {
+static inline void init(/*const int &width, const int &height*/) {
     deinit();
     int total = 1 + NUM_EXTRA_BUFF;
 
@@ -601,7 +615,7 @@ static inline void init(const int &width, const int &height) {
     empty_list.resize(NUM_EXTRA_BUFF);
 
     for (int i = 0; i < total; ++i) {
-        initImage(buffers[i], width, height);
+        initImage(buffers[i]/*, width, height*/);
         if (i > 0) {
             empty_list[i - 1] = i;
         }
@@ -611,7 +625,8 @@ static inline void init(const int &width, const int &height) {
     matching_list.clear();
     //decode_list.clear();
     orb = cv::ORB::create(1000);
-    matcher = cv::BFMatcher::create(cv::NORM_HAMMING);
+    //matcher = cv::BFMatcher::create(cv::NORM_HAMMING);
+    flann = cv::FlannBasedMatcher::create();
 }
 
 extern "C"
@@ -622,12 +637,12 @@ Java_com_example_android_camera2basic_FindHomography_start(
         jint width,
         jint height) {
     const int scale_factor = 2;
-    ZEYES_LOG_DEBUG("DEADBEAF start [%d,%d]->[%d,%d]\n", width, height, 640, 480);
+    ZEYES_LOG_INFO("DEADBEAF start [%d,%d]->[%d,%d]\n", width, height, 640, 480);
     init_start_rect(width, height);
-    init(640, 480);
-    ZEYES_LOG_DEBUG("DEADBEAF start threads\n");
+    init(/*640, 480*/);
+    ZEYES_LOG_INFO("DEADBEAF start threads\n");
     start_theads();
-    ZEYES_LOG_DEBUG("DEADBEAF start threads end\n");
+    ZEYES_LOG_INFO("DEADBEAF start threads end\n");
     return true;
 }
 
@@ -756,13 +771,13 @@ Java_com_example_android_camera2basic_FindHomography_setreference(
         jint stride,
         jint jpeg_size) {
 
-    ZEYES_LOG_DEBUG("DEADBEAF native %d %d", width, height);
+    ZEYES_LOG_INFO("DEADBEAF native %d %d", width, height);
 
     if (running == false) {
-        init(640, 480);
-        ZEYES_LOG_DEBUG("DEADBEAF start threads\n");
+        init(/*640, 480*/);
+        ZEYES_LOG_INFO("DEADBEAF start threads\n");
         start_theads();
-        ZEYES_LOG_DEBUG("DEADBEAF start threads end\n");
+        ZEYES_LOG_INFO("DEADBEAF start threads end\n");
     }
     std::vector<int> tmp;
     {
