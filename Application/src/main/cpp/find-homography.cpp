@@ -64,9 +64,14 @@ static int width = 0;
 static int height = 0;
 static bool running = false;
 static bool first = true;
+static const int NUM_FEATURES = 1000;
+static const int MIN_MATCHINGS = 20;
 static cv::Ptr<cv::ORB> orb;
+#if defined(USE_FLANN)
+static cv::Ptr<cv::FlannBasedMatcher> matcher;
+#else
 static cv::Ptr<cv::BFMatcher> matcher;
-static cv::Ptr<cv::FlannBasedMatcher> flann;
+#endif
 static pthread_t t_feature;
 static pthread_t t_matching;
 static pthread_t t_decoder;
@@ -139,9 +144,11 @@ void *feature(void *id) {
                 //fast_orb_640x480_downscale(buffers[idx].pyramid, 8);
                 //fast_orb_640x480(buffers[idx].pyramid, 8, buffers[idx].keypoints, buffers[idx].fast_desc);
                 ///*buffers[idx].desc = */ cv::Mat desc(buffers[idx].keypoints.size(), 32, CV_8UC1, buffers[idx].fast_desc.data());
+#if defined(USE_FLANN)
                 if(buffers[idx].desc.type()!=CV_32F) {
                     buffers[idx].desc.convertTo(buffers[idx].desc, CV_32F);
                 }
+#endif
                 if (idx == 0) {
                     pthread_mutex_unlock(&reference_mtx);
                 }
@@ -192,7 +199,7 @@ cv::Mat getFeaturePairsBySequentialRanSAC(const std::vector<cv::KeyPoint> kp1,
     }
 
     //std::vector<char> final_mask(matchings.size(), 0);
-    cv::Mat h_result = cv::findHomography(X, Y, CV_RANSAC, 3, final_mask, GLOBAL_MAX_ITERATION);
+    cv::Mat h_result = cv::findHomography(X, Y, CV_RANSAC, 1.0, final_mask/*, GLOBAL_MAX_ITERATION*/);
 
 #if 0
     std::vector<Point2> tmp_X = _X;
@@ -249,6 +256,24 @@ cv::Mat getFeaturePairsBySequentialRanSAC(const std::vector<cv::KeyPoint> kp1,
     return h_result;
 }
 
+static inline void gen_poly(const int& width, const int& height, const cv::Mat& H, std::vector<cv::Point2f>& poly)
+{
+    std::vector<cv::Point2f> src(4);
+    std::vector<cv::Point2f> dst(4);
+    for (int i = 0; i < 4; ++i) {
+        src[i] = cv::Point2f(width * (((i + 1) / 2) & 0x1), height * (i / 2));
+    }
+    cv::perspectiveTransform(src, dst, H);
+    cv::intersectConvexConvex(src, dst, poly);
+}
+
+static inline bool good_homography(const cv::Mat& H)
+{
+    cv::Rect roi(0, 0, 2, 2);
+    cv::Mat quad2 = H(roi);
+    return cv::determinant(quad2) >= 0 ? true : false;
+}
+
 static bool save = true;
 
 void *matching(void *id) {
@@ -286,9 +311,7 @@ void *matching(void *id) {
 
                 //std::unique_lock<std::mutex> lock(reference_mtxs[row]);
                 pthread_mutex_lock(&reference_mtx);
-                //matcher->match(buffers[0].desc, buffers[idx].desc, matchings);
-                flann->match(buffers[0].desc, buffers[idx].desc, matchings);
-                //matcher.match(buffers[row].desc, buffers[idx].desc, matchings);
+                matcher->match(buffers[0].desc, buffers[idx].desc, matchings);
                 //pthread_mutex_unlock(&reference_mtx);
                 //}
 #define DRAW_MATCHING
@@ -323,9 +346,9 @@ void *matching(void *id) {
                                     cv::Scalar::all(-1), cv::Scalar::all(-1), final_mask);
 
                     cv::imwrite(
-                            "/storage/sdcard0/DCIM/Camera/matching.jpg",
+                            "/storage/emulated/0/Android/data/com.example.android.camera2basic/files/matching.jpg",
                             output);
-                    save = false;
+                    //save = false;
                 }
 
 #endif
@@ -339,23 +362,27 @@ void *matching(void *id) {
                     pthread_mutex_unlock(&empty_mtx);
                 }
 #endif
-                std::vector<cv::Point2f> corner_src(4);
-                std::vector<cv::Point2f> corner_dst(4);
-                corner_src[0] = cv::Point2f(0, 0);
-                corner_src[1] = cv::Point2f(buffers[idx].orig_width, 0);
-                corner_src[2] = cv::Point2f(buffers[idx].orig_width, buffers[idx].orig_height);
-                corner_src[3] = cv::Point2f(0, buffers[idx].orig_height);
-                cv::perspectiveTransform(corner_src, corner_dst, H);
-                //
-                ZEYES_LOG_INFO("DEADBEAF transformed corner [%f, %f] [%f, %f] [%f, %f] [%f, %f]\n",
-                               corner_dst[0].x, corner_dst[0].y,
-                               corner_dst[1].x, corner_dst[1].y,
-                               corner_dst[2].x, corner_dst[2].y,
-                               corner_dst[3].x, corner_dst[3].y);
-                //std::vector<cv::Point2f> intersections;
+
+                int num_matchings = cv::countNonZero(final_mask);
+
                 int i = next_rect_idx(rectangle_idx);
                 intersections[i].clear();
-                cv::intersectConvexConvex(corner_src, corner_dst, intersections[i]);
+
+                if (num_matchings > MIN_MATCHINGS && !H.empty() && good_homography(H)) {
+                    gen_poly(buffers[idx].orig_width, buffers[idx].orig_height, H, intersections[i]);
+                    valid = true;
+                } else {
+                    //
+                    intersections[i].resize(4);
+                    intersections[i][0] = cv::Point2f(0, 0);
+                    intersections[i][1] = cv::Point2f(buffers[idx].orig_width, 0);
+                    intersections[i][2] = cv::Point2f(buffers[idx].orig_width, buffers[idx].orig_height);
+                    intersections[i][3] = cv::Point2f(0, buffers[idx].orig_height);
+                    valid = false;
+                    save = false;
+                }
+
+
                 ZEYES_LOG_INFO(
                         "DEADBEAF intersections corner %d [%f, %f] [%f, %f] [%f, %f] [%f, %f]\n",
                         intersections[i].size(),
@@ -364,17 +391,7 @@ void *matching(void *id) {
                         intersections[i][2].x, intersections[i][2].y,
                         intersections[i][3].x, intersections[i][3].y);
 
-
-                //rectangle[i][0] = (int)intersections[0].x;
-                //rectangle[i][1] = (int)intersections[0].y;
-                //rectangle[i][2] = (int)intersections[1].x;
-                //rectangle[i][3] = (int)intersections[1].y;
-                //rectangle[i][4] = (int)intersections[2].x;
-                //rectangle[i][5] = (int)intersections[2].y;
-                //rectangle[i][6] = (int)intersections[3].x;
-                //rectangle[i][7] = (int)intersections[3].y;
-                //rectangle[i][8] = 1;
-                valid = true;
+                //valid = true;
                 inc_rect_idx(rectangle_idx);
             }
         }
@@ -624,9 +641,12 @@ static inline void init(/*const int &width, const int &height*/) {
     feature_list.clear();
     matching_list.clear();
     //decode_list.clear();
-    orb = cv::ORB::create(1000);
-    //matcher = cv::BFMatcher::create(cv::NORM_HAMMING);
-    flann = cv::FlannBasedMatcher::create();
+    orb = cv::ORB::create(NUM_FEATURES);
+#if defined(USE_FLANN)
+    matcher = cv::FlannBasedMatcher::create();
+#else
+    matcher = cv::BFMatcher::create(cv::NORM_HAMMING);
+#endif
 }
 
 extern "C"
