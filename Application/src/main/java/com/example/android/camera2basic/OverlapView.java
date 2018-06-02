@@ -1,11 +1,11 @@
 package com.example.android.camera2basic;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.Point;
 import android.graphics.PointF;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -20,22 +20,35 @@ public class OverlapView extends View {
     private PointF[] points;
     private final Paint bgPaint;
     private final Paint fgPaint;
-    private FindHomography mFindHomography = null;
-
-    public void setmFindHomography(final FindHomography findHomography)
+    //private FindHomography mFindHomography = null;
+    private ImageTracker mTracker;
+    private int mWidth = 0;
+    private int mHeight = 0;
+    private Bitmap mPanoBitmap = null;
+    public void setRectangle(int width, int height)
     {
-        mFindHomography = findHomography;
+        mWidth = height;
+        mHeight = width;
+    }
+
+    //public void setmFindHomography(final FindHomography findHomography)
+    //{
+    //    mFindHomography = findHomography;
+    //}
+    public void setTracker(final ImageTracker tracker)
+    {
+        mTracker = tracker;
     }
 
     public OverlapView(final Context context, final AttributeSet set) {
         super(context, set);
 
         fgPaint = new Paint();
-        fgPaint.setAlpha(180);
+        fgPaint.setAlpha(64);
         fgPaint.setColor(Color.RED);
 
         bgPaint = new Paint();
-        bgPaint.setAlpha(180);
+        bgPaint.setAlpha(64);
         bgPaint.setColor(Color.GREEN);
         this.tl_x = -1;
         this.tl_y = -1;
@@ -65,16 +78,29 @@ public class OverlapView extends View {
         postInvalidate();
     }
 
+    private static final int PANO_HEIGHT = 250;
+
     @Override
     public void onDraw(final Canvas canvas) {
+        int canvasWidth = canvas.getWidth();
+        int canvasHeight = canvas.getHeight();
+        Paint panoPaint = new Paint();
+        panoPaint.setAlpha(255);
+        panoPaint.setColor(Color.DKGRAY);
+
+        if (mPanoBitmap == null) {
+            mPanoBitmap = Bitmap.createBitmap(canvasWidth, PANO_HEIGHT, Bitmap.Config.ARGB_8888);
+            mPanoBitmap.eraseColor(Color.DKGRAY);
+        }
+
         final int x = 10;
-        float[] result = mFindHomography.getoverlaprect();
+        float[] result = ImageTracker.getoverlaprect();
         int size = result.length;
         int num_points = size / 2;
         if (num_points > 0) {
             points = new PointF[num_points];
             for (int i = 0; i < num_points; ++i) {
-                points[i] = new PointF(result[i * 2 + 1], result[i * 2]);
+                points[i] = new PointF(result[i * 2] * mWidth, result[i * 2 + 1] * mHeight);
                 Log.d("DEADBEAF", "get point" + points[i]);
             }
             valid = result[size - 1] > 0 ? 1 : 0;
@@ -109,5 +135,8 @@ public class OverlapView extends View {
                 }
             }
         }
+        //canvas.drawRect(0, 0, canvasWidth, 250, panoPaint);
+        ImageTracker.renderPanorama(mPanoBitmap);
+        canvas.drawBitmap(mPanoBitmap, 0, 0, null);
     }
 }

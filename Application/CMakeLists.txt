@@ -19,6 +19,9 @@ set(opencv_DIR ${CMAKE_SOURCE_DIR}/../opencv)
 
 set(opencv_INC ${opencv_DIR}/${ANDROID_ABI}/sdk/native/jni/include)
 
+add_library( cvvideo STATIC IMPORTED )
+set_target_properties( cvvideo PROPERTIES IMPORTED_LOCATION ${opencv_DIR}/${ANDROID_ABI}/sdk/native/staticlibs/libopencv_video.a )
+
 add_library( cvimgproc STATIC IMPORTED )
 set_target_properties( cvimgproc PROPERTIES IMPORTED_LOCATION ${opencv_DIR}/${ANDROID_ABI}/sdk/native/staticlibs/libopencv_imgproc.a )
 
@@ -92,16 +95,42 @@ add_library( # Sets the name of the library.
              # Provides a relative path to your source file(s).
              # Associated headers in the same location as their source
              # file are automatically included.
-             src/main/cpp/find-homography.cpp )
+             src/main/cpp/find-homography.cpp
+             src/main/cpp/ORBextractor.cc )
 
 target_link_libraries( # Specifies the target library.
                        find-homography
 
                        # Links the target library to the log library
                        # included in the NDK.
-                       ${log-lib} ${z-lib} cvfeatures2d cvcalib3d cvimgproc cvimgcodecs
+                       ${log-lib} ${z-lib} cvvideo cvfeatures2d cvcalib3d cvimgproc cvimgcodecs
                        cvhighgui cvphoto cvcore  cvflann cvhal cvimf cvjpeg cvjasper cvwebp cvpng cvtiff cpufeatures
                        libturbojpeg fastcv )
 
 
 target_include_directories(find-homography PRIVATE ${opencv_INC} ${jpeg_INC})
+
+
+add_library( # Sets the name of the library.
+             imagetracker
+
+             # Sets the library as a shared library.
+             SHARED
+
+             # Provides a relative path to your source file(s).
+             # Associated headers in the same location as their source
+             # file are automatically included.
+             src/main/cpp/imagetracker-jni.cpp
+             src/main/cpp/ORBextractor.cc )
+
+target_link_libraries( # Specifies the target library.
+                       imagetracker
+
+                       # Links the target library to the log library
+                       # included in the NDK.
+                       ${log-lib} ${z-lib} android jnigraphics cvvideo cvfeatures2d cvcalib3d cvimgproc cvimgcodecs
+                       cvhighgui cvphoto cvcore  cvflann cvhal cvimf cvjpeg cvjasper cvwebp cvpng cvtiff cpufeatures
+                       libturbojpeg fastcv )
+
+
+target_include_directories(imagetracker PRIVATE ${opencv_INC} ${jpeg_INC} ${CMAKE_SOURCE_DIR}/src/main/cpp/gms)

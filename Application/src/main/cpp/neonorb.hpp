@@ -9,7 +9,11 @@
 //#include "arm_compute/runtime/Tensor.h"
 //#include "arm_compute/runtime/Pyramid.h"
 
+//#define USE_FASTCV
+
+#if defined(USE_FASTCV)
 #include "fastcv.h"
+#endif
 
 #include "pislam/Orb.h"
 #include "pislam/Fast.h"
@@ -69,6 +73,7 @@ class FAST_NEON_ORB_640x480_8
     uint8_t _out[ALLOCATE_SIZE];
 };
 
+#if defined(USE_FASTCV)
 static inline int fast_orb_640x480_downscale(FAST_NEON_ORB_640x480_8& input, int level)
 {
     //
@@ -87,6 +92,7 @@ static inline int fast_orb_640x480_downscale(FAST_NEON_ORB_640x480_8& input, int
         //std::cout << "scale " << i << std::endl;
     }
 }
+#endif
 
 static inline int fast_orb_640x480_save(FAST_NEON_ORB_640x480_8& input, std::string name)
 {

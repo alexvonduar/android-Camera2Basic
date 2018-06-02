@@ -19,7 +19,18 @@
 #include "turbojpeg.h"
 
 #include "neonorb.hpp"
+
 #define ZEYES_LOG_LEVEL ZEYES_LOG_LEVEL_VERBOSE
+
+#define USE_OPTF
+#define DRAW_MATCHING
+#define USE_ORBSLAM
+
+#if defined(USE_ORBSLAM)
+
+#include "ORBextractor.h"
+
+#endif
 
 typedef struct _Image {
     int buffer_size;
@@ -66,7 +77,11 @@ static bool running = false;
 static bool first = true;
 static const int NUM_FEATURES = 1000;
 static const int MIN_MATCHINGS = 20;
+#if defined(USE_ORBSLAM)
+static ORB_SLAM2::ORBextractor orb(NUM_FEATURES, 1.2, 8, 20, 7);
+#else
 static cv::Ptr<cv::ORB> orb;
+#endif
 #if defined(USE_FLANN)
 static cv::Ptr<cv::FlannBasedMatcher> matcher;
 #else
@@ -139,14 +154,25 @@ void *feature(void *id) {
                 if (idx == 0) {
                     pthread_mutex_lock(&reference_mtx);
                 }
-                orb->detectAndCompute(buffers[idx].data, cv::Mat(), buffers[idx].keypoints,
-                                      buffers[idx].desc);
-                //fast_orb_640x480_downscale(buffers[idx].pyramid, 8);
-                //fast_orb_640x480(buffers[idx].pyramid, 8, buffers[idx].keypoints, buffers[idx].fast_desc);
-                ///*buffers[idx].desc = */ cv::Mat desc(buffers[idx].keypoints.size(), 32, CV_8UC1, buffers[idx].fast_desc.data());
+#if defined(USE_OPTF)
+                if (idx == 0) {
+#endif
+                    ZEYES_LOG_INFO("DEADBEAF do feature extraction\n");
+#if defined(USE_ORBSLAM)
+                    orb(buffers[idx].data, cv::Mat(), buffers[idx].keypoints, buffers[idx].desc);
+#else
+                    orb->detectAndCompute(buffers[idx].data, cv::Mat(), buffers[idx].keypoints,
+                                          buffers[idx].desc);
+#endif
+                    //fast_orb_640x480_downscale(buffers[idx].pyramid, 8);
+                    //fast_orb_640x480(buffers[idx].pyramid, 8, buffers[idx].keypoints, buffers[idx].fast_desc);
+                    ///*buffers[idx].desc = */ cv::Mat desc(buffers[idx].keypoints.size(), 32, CV_8UC1, buffers[idx].fast_desc.data());
 #if defined(USE_FLANN)
-                if(buffers[idx].desc.type()!=CV_32F) {
-                    buffers[idx].desc.convertTo(buffers[idx].desc, CV_32F);
+                    if(buffers[idx].desc.type()!=CV_32F) {
+                        buffers[idx].desc.convertTo(buffers[idx].desc, CV_32F);
+                    }
+#endif
+#if defined(USE_OPTF)
                 }
 #endif
                 if (idx == 0) {
@@ -199,7 +225,8 @@ cv::Mat getFeaturePairsBySequentialRanSAC(const std::vector<cv::KeyPoint> kp1,
     }
 
     //std::vector<char> final_mask(matchings.size(), 0);
-    cv::Mat h_result = cv::findHomography(X, Y, CV_RANSAC, 1.0, final_mask/*, GLOBAL_MAX_ITERATION*/);
+    cv::Mat h_result = cv::findHomography(X, Y, CV_RANSAC, 1.0,
+                                          final_mask/*, GLOBAL_MAX_ITERATION*/);
 
 #if 0
     std::vector<Point2> tmp_X = _X;
@@ -256,8 +283,8 @@ cv::Mat getFeaturePairsBySequentialRanSAC(const std::vector<cv::KeyPoint> kp1,
     return h_result;
 }
 
-static inline void gen_poly(const int& width, const int& height, const cv::Mat& H, std::vector<cv::Point2f>& poly)
-{
+static inline void
+gen_poly(const int &width, const int &height, const cv::Mat &H, std::vector<cv::Point2f> &poly) {
     std::vector<cv::Point2f> src(4);
     std::vector<cv::Point2f> dst(4);
     for (int i = 0; i < 4; ++i) {
@@ -267,17 +294,54 @@ static inline void gen_poly(const int& width, const int& height, const cv::Mat& 
     cv::intersectConvexConvex(src, dst, poly);
 }
 
-static inline bool good_homography(const cv::Mat& H)
-{
+static inline bool good_homography(const cv::Mat &H) {
     cv::Rect roi(0, 0, 2, 2);
     cv::Mat quad2 = H(roi);
-    return cv::determinant(quad2) >= 0 ? true : false;
+    float a = H.at<float>(0, 0);
+    float b = H.at<float>(0, 1);
+    float c = H.at<float>(1, 0);
+    float d = H.at<float>(1, 1);
+    int type = H.type();
+
+    if ((a * d - b * c) < 0) {
+        return false;
+    }
+#if 1
+    if (a <= 0) {
+        return false;
+    }
+    if (d <= 0) {
+        return false;
+    }
+
+    if (a < d) {
+        float tmp = d;
+        d = a;
+        a = tmp;
+    }
+
+    if (a > 2.0) {
+        return false;
+    }
+
+    if (d < 0.7) {
+        return false;
+    }
+
+    b = b < 0 ? -b : b;
+
+    if (b > 0.2) {
+        return false;
+    }
+#endif
+    return true;
+    //return cv::determinant(quad2) >= 0 ? true : false;
 }
 
 static bool save = true;
 
 void *matching(void *id) {
-    ZEYES_LOG_DEBUG("DEADBEAF matching started\n");
+    ZEYES_LOG_INFO("DEADBEAF matching started\n");
     while (running) {
         {
             //std::unique_lock<std::mutex> lock(matching_mtx);
@@ -286,7 +350,7 @@ void *matching(void *id) {
             pthread_cond_wait(&matching_cv, &matching_mtx);
             pthread_mutex_unlock(&matching_mtx);
         }
-        ZEYES_LOG_DEBUG("DEADBEAF matching wakeup\n");
+        ZEYES_LOG_INFO("DEADBEAF matching wakeup\n");
 
         while (matching_list.size()) {
             int idx = -1;
@@ -301,39 +365,60 @@ void *matching(void *id) {
                 pthread_mutex_unlock(&matching_mtx);
             }
             if (idx != -1) {
+#if !defined(USE_OPTF)
                 if (buffers[idx].keypoints.size() == 0) {
                     ZEYES_LOG_ERROR("DEADBEAF no key points in current image %d\n", idx);
+                    // TODO: return current image to empty list
                     continue;
                 }
-                std::vector<cv::DMatch> matchings;
-                //cv::BFMatcher matcher(cv::NORM_HAMMING);
+#endif
                 cv::Mat H;
+                int num_matchings = 0;
+                std::vector<char> final_mask;
 
                 //std::unique_lock<std::mutex> lock(reference_mtxs[row]);
                 pthread_mutex_lock(&reference_mtx);
-                matcher->match(buffers[0].desc, buffers[idx].desc, matchings);
-                //pthread_mutex_unlock(&reference_mtx);
-                //}
-#define DRAW_MATCHING
-#if 0//!defined(DRAW_MATCHING)
-                {
-                    //std::unique_lock<std::mutex> lock(empty_mtx);
-                    pthread_mutex_lock(&empty_mtx);
-                    empty_list.push_back(idx);
-                    ZEYES_LOG_DEBUG("DEADBEAF put %d image into empty size %d\n", idx,
-                                    empty_list.size());
-                    pthread_mutex_unlock(&empty_mtx);
-                }
-#endif
 
-                std::vector<char> final_mask(matchings.size(), 0);
+#if defined(USE_OPTF)
+                std::vector<cv::Point2f> kp1;
+                std::vector<cv::Point2f> kp2;
+                for (int i = 0; i < buffers[0].keypoints.size(); ++i) {
+                    kp1.push_back(buffers[0].keypoints[i].pt);
+                    kp2.push_back(buffers[0].keypoints[i].pt);
+                }
+                std::vector<uchar> status;
+                std::vector<float> error;
+                cv::calcOpticalFlowPyrLK(buffers[0].data, buffers[idx].data, kp1, kp2, status,
+                                         error, cv::Size(10, 10), 3,
+                                         cv::TermCriteria(
+                                                 cv::TermCriteria::COUNT + cv::TermCriteria::EPS,
+                                                 30, 0.01),
+                                         0, 1e-4);
+                std::vector<cv::Point2f> kp3;
+                std::vector<cv::Point2f> kp4;
+                for (int i = 0; i < status.size(); ++i) {
+                    if (status[i] > 0) {
+                        kp3.push_back(kp1[i]);
+                        kp4.push_back(kp2[i]);
+                        num_matchings++;
+                    }
+                }
+
+                H = cv::findHomography(kp3, kp4, CV_LMEDS, 3.0, final_mask);
+                H.convertTo(H, CV_32F);
+#else
+                std::vector<cv::DMatch> matchings;
+
+                matcher->match(buffers[0].desc, buffers[idx].desc, matchings);
+
+                //std::vector<char> final_mask(matchings.size(), 0);
                 H = getFeaturePairsBySequentialRanSAC(buffers[0].keypoints,
                                                       buffers[idx].keypoints, matchings,
                                                       final_mask);
+#endif
                 pthread_mutex_unlock(&reference_mtx);
 
-
-#if defined(DRAW_MATCHING)
+#if !defined(USE_OPTF) && defined(DRAW_MATCHING)
 
                 if (save) {
                     cv::Mat img1;
@@ -350,9 +435,8 @@ void *matching(void *id) {
                             output);
                     //save = false;
                 }
-
 #endif
-#if 1
+
                 {
                     //std::unique_lock<std::mutex> lock(empty_mtx);
                     pthread_mutex_lock(&empty_mtx);
@@ -361,27 +445,31 @@ void *matching(void *id) {
                                     empty_list.size());
                     pthread_mutex_unlock(&empty_mtx);
                 }
-#endif
 
-                int num_matchings = cv::countNonZero(final_mask);
+#if defined(USE_OPTF)
+                num_matchings = cv::countNonZero(final_mask);
+#else
+                num_matchings = cv::countNonZero(final_mask);
+#endif
 
                 int i = next_rect_idx(rectangle_idx);
                 intersections[i].clear();
 
                 if (num_matchings > MIN_MATCHINGS && !H.empty() && good_homography(H)) {
-                    gen_poly(buffers[idx].orig_width, buffers[idx].orig_height, H, intersections[i]);
+                    gen_poly(buffers[idx].orig_width, buffers[idx].orig_height, H,
+                             intersections[i]);
                     valid = true;
                 } else {
                     //
                     intersections[i].resize(4);
                     intersections[i][0] = cv::Point2f(0, 0);
                     intersections[i][1] = cv::Point2f(buffers[idx].orig_width, 0);
-                    intersections[i][2] = cv::Point2f(buffers[idx].orig_width, buffers[idx].orig_height);
+                    intersections[i][2] = cv::Point2f(buffers[idx].orig_width,
+                                                      buffers[idx].orig_height);
                     intersections[i][3] = cv::Point2f(0, buffers[idx].orig_height);
                     valid = false;
                     save = false;
                 }
-
 
                 ZEYES_LOG_INFO(
                         "DEADBEAF intersections corner %d [%f, %f] [%f, %f] [%f, %f] [%f, %f]\n",
@@ -641,7 +729,9 @@ static inline void init(/*const int &width, const int &height*/) {
     feature_list.clear();
     matching_list.clear();
     //decode_list.clear();
+#if !defined(USE_ORBSLAM)
     orb = cv::ORB::create(NUM_FEATURES);
+#endif
 #if defined(USE_FLANN)
     matcher = cv::FlannBasedMatcher::create();
 #else
