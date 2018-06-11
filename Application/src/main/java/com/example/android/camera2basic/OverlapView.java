@@ -16,12 +16,13 @@ public class OverlapView extends View {
     private int tl_y;
     private int br_x;
     private int br_y;
-    private int valid;
+    private int valid_overlap;
+    private int valid_hint;
     private PointF[] points;
     private final Paint bgPaint;
     private final Paint fgPaint;
     //private FindHomography mFindHomography = null;
-    private ImageTracker mTracker;
+    //private ImageTracker mTracker;
     private int mWidth = 0;
     private int mHeight = 0;
     private Bitmap mPanoBitmap = null;
@@ -35,10 +36,10 @@ public class OverlapView extends View {
     //{
     //    mFindHomography = findHomography;
     //}
-    public void setTracker(final ImageTracker tracker)
-    {
-        mTracker = tracker;
-    }
+    //public void setTracker(final ImageTracker tracker)
+    //{
+    //    mTracker = tracker;
+    //}
 
     public OverlapView(final Context context, final AttributeSet set) {
         super(context, set);
@@ -62,7 +63,7 @@ public class OverlapView extends View {
         this.tl_y = tl_y;
         this.br_x = br_x;
         this.br_y = br_y;
-        this.valid = valid;
+        this.valid_overlap = valid;
         postInvalidate();
     }
 
@@ -82,6 +83,7 @@ public class OverlapView extends View {
 
     @Override
     public void onDraw(final Canvas canvas) {
+        Log.e("DEADBEAF", "onDraw++++");
         int canvasWidth = canvas.getWidth();
         int canvasHeight = canvas.getHeight();
         Paint panoPaint = new Paint();
@@ -96,17 +98,19 @@ public class OverlapView extends View {
         final int x = 10;
         float[] result = ImageTracker.getoverlaprect();
         int size = result.length;
-        int num_points = size / 2;
+        int num_points = (size - 2) / 2;
         if (num_points > 0) {
             points = new PointF[num_points];
             for (int i = 0; i < num_points; ++i) {
                 points[i] = new PointF(result[i * 2] * mWidth, result[i * 2 + 1] * mHeight);
                 Log.d("DEADBEAF", "get point" + points[i]);
             }
-            valid = result[size - 1] > 0 ? 1 : 0;
+            valid_overlap = result[size - 2] > 0 ? 1 : 0;
+            valid_hint = result[size - 1] > 0 ? 1 : 0;
         } else {
             points = null;
-            valid = 0;
+            valid_overlap = 0;
+            valid_hint = 0;
         }
 
         //canvas.drawPaint(bgPaint);
@@ -119,7 +123,7 @@ public class OverlapView extends View {
                 path.lineTo(points[i].x, points[i].y);
             }
             path.lineTo(points[0].x, points[0].y);
-            if (valid > 0) {
+            if (valid_overlap > 0) {
                 canvas.drawPath(path, bgPaint);
             } else {
                 canvas.drawPath(path, fgPaint);
@@ -128,7 +132,7 @@ public class OverlapView extends View {
             if (tl_x != -1) {
 
                 //canvas.drawText(recog.getTitle() + ": " + recog.getConfidence(), x, y, fgPaint);
-                if (valid > 0) {
+                if (valid_overlap > 0) {
                     canvas.drawRect(tl_x, tl_y, br_x, br_y, bgPaint);
                 } else {
                     canvas.drawRect(tl_x, tl_y, br_x, br_y, fgPaint);
@@ -138,5 +142,6 @@ public class OverlapView extends View {
         //canvas.drawRect(0, 0, canvasWidth, 250, panoPaint);
         ImageTracker.renderPanorama(mPanoBitmap);
         canvas.drawBitmap(mPanoBitmap, 0, 0, null);
+        Log.e("DEADBEAF", "onDraw----");
     }
 }

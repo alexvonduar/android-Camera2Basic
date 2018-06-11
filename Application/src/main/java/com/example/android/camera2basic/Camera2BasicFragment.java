@@ -331,7 +331,7 @@ public class Camera2BasicFragment extends Fragment
 
         @Override
         public void onImageAvailable(ImageReader reader) {
-            mBackgroundHandler.post(new ImageSaver(reader.acquireLatestImage(), mFile, mTracker, mImageReader.getWidth(), mImageReader.getHeight(), true, 0));
+            mBackgroundHandler.post(new ImageSaver(reader.acquireLatestImage(), mFile, mImageReader.getWidth(), mImageReader.getHeight(), true, 0));
             //mCount++;
             //if (mCount > 2) {
             //    mCount = 0;
@@ -352,7 +352,7 @@ public class Camera2BasicFragment extends Fragment
             try {
                 img = reader.acquireLatestImage();
                 if (img != null) {
-                    mBackgroundHandler.post(new ImageSaver(img, mFile, mTracker, mPreviewReader.getWidth(), mPreviewReader.getHeight(), take_picture, mCount));
+                    mBackgroundHandler.post(new ImageSaver(img, mFile, mPreviewReader.getWidth(), mPreviewReader.getHeight(), take_picture, mCount));
                     if (take_picture) {
                         take_picture = false;
                     }
@@ -554,7 +554,7 @@ public class Camera2BasicFragment extends Fragment
         view.findViewById(R.id.info).setOnClickListener(this);
         mDrawTexture = view.findViewById(R.id.drawtexture);
         //mDrawTexture.setmFindHomography(mFindHomography);
-        mDrawTexture.setTracker(mTracker);
+        //mDrawTexture.setTracker(mTracker);
         mTextureView = view.findViewById(R.id.texture);
     }
 
@@ -565,8 +565,8 @@ public class Camera2BasicFragment extends Fragment
     }
 
 
-    private FindHomography mFindHomography;
-    private ImageTracker mTracker;
+    //private FindHomography mFindHomography;
+    //private ImageTracker mTracker;
 
     @Override
     public void onResume() {
@@ -755,7 +755,7 @@ public class Camera2BasicFragment extends Fragment
                 throw new RuntimeException("Time out waiting to lock camera opening.");
             }
             manager.openCamera(mCameraId, mStateCallback, mBackgroundHandler);
-            FindHomography.start(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+            //FindHomography.start(mPreviewSize.getWidth(), mPreviewSize.getHeight());
         } catch (CameraAccessException e) {
             e.printStackTrace();
         } catch (InterruptedException e) {
@@ -768,7 +768,7 @@ public class Camera2BasicFragment extends Fragment
      */
     private void closeCamera() {
         try {
-            FindHomography.stop();
+            //FindHomography.stop();
             mCameraOpenCloseLock.acquire();
             if (null != mCaptureSession) {
                 mCaptureSession.close();
@@ -1076,19 +1076,19 @@ public class Camera2BasicFragment extends Fragment
          */
         private final File mFile;
         //private final FindHomography mFindhomography;
-        private final ImageTracker mTracker;
+        //private final ImageTracker mTracker;
         private final int mWidth;
         private final int mHeight;
         private final boolean mStillCapture;
         private final int mCount;
 
-        ImageSaver(Image image, File file, ImageTracker tracker, int width, int height, boolean stillCapture, int count) {
+        ImageSaver(Image image, File file, int width, int height, boolean stillCapture, int count) {
             mImage = image;
             mFile = file;
             mWidth = width;
             mHeight = height;
             //mFindhomography = findHomography;
-            mTracker = tracker;
+            //mTracker = tracker;
             mStillCapture = stillCapture;
             mCount = count;
         }
@@ -1188,17 +1188,17 @@ public class Camera2BasicFragment extends Fragment
          * The file we save the image into.
          */
         private final File mFile;
-        private final FindHomography mFindhomography;
+        //private final FindHomography mFindhomography;
         private final int mWidth;
         private final int mHeight;
         private final boolean mStillCapture;
 
-        YuvSender(Image image, File file, FindHomography findHomography, int width, int height, boolean stillCapture) {
+        YuvSender(Image image, File file, int width, int height, boolean stillCapture) {
             mImage = image;
             mFile = file;
             mWidth = width;
             mHeight = height;
-            mFindhomography = findHomography;
+            //mFindhomography = findHomography;
             mStillCapture = stillCapture;
         }
 
@@ -1216,11 +1216,11 @@ public class Camera2BasicFragment extends Fragment
                     " pixel stride: " + planes[0].getPixelStride());
             try {
                 if (mStillCapture) {
-                    FindHomography.setreference(img, mWidth, mHeight, stride, buffer.capacity());
+                    //FindHomography.setreference(img, mWidth, mHeight, stride, buffer.capacity());
                     output = new FileOutputStream(mFile);
                     output.write(img);
                 } else {
-                    FindHomography.gethomography(img, mWidth, mHeight, stride);
+                    //FindHomography.gethomography(img, mWidth, mHeight, stride);
                 }
 
             } catch (IOException e) {

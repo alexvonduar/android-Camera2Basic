@@ -863,7 +863,9 @@ public:
 
 
     void stop() {
+        ZEYES_LOG_ERROR("DEADBEAF stop++--");
         pthread_mutex_lock(&global_lock);
+        ZEYES_LOG_ERROR("DEADBEAF stop++--");
         clear();
 
         free_list.clear();
@@ -873,10 +875,13 @@ public:
         }
         all_frames.clear();
         pthread_mutex_unlock(&global_lock);
+        ZEYES_LOG_ERROR("DEADBEAF stop----");
     }
 
     void get_hintbox(std::vector<cv::Point2f> &hintbox, bool &valid_overlap, bool &valid_hintbox) {
+        ZEYES_LOG_ERROR("DEADBEAF hint box++--");
         pthread_mutex_lock(&hintbox_mutex);
+        ZEYES_LOG_ERROR("DEADBEAF hint box++++");
         if (m_valid_overlap) {
             //hintbox.emplace(hintbox.begin(), m_hintboxi.begin(), m_hintboxi.end());
             hintbox = m_hintboxf;
@@ -891,13 +896,17 @@ public:
             valid_hintbox = false;
         }
         pthread_mutex_unlock(&hintbox_mutex);
+        ZEYES_LOG_ERROR("DEADBEAF render panorama----");
         //return m_valid_overlap;
     }
 
     void render_panorama(void *pixel, const int &width, const int &height, const int &stride) {
+        ZEYES_LOG_ERROR("DEADBEAF render panorama++--");
         pthread_mutex_lock(&global_lock);
+        ZEYES_LOG_ERROR("DEADBEAF render panorama++++");
         if (keyframe_list.size()) {
             if (m_num_pano_frames == keyframe_list.size()) {
+                pthread_mutex_unlock(&global_lock);
                 return;
             }
 
@@ -1004,10 +1013,13 @@ public:
             cv::cvtColor(pano_image, roi, CV_RGB2RGBA);
         }
         pthread_mutex_unlock(&global_lock);
+        ZEYES_LOG_ERROR("DEADBEAF render panorama----");
     }
 
     bool track(const cv::Mat &img, const int &rotation, bool is_keyframe) {
+        ZEYES_LOG_ERROR("DEADBEAF track++--");
         pthread_mutex_lock(&global_lock);
+        ZEYES_LOG_ERROR("DEADBEAF track++++");
         bool result = true;
         Frame *new_frame = get_one_free();
         ZEYES_LOG_ERROR(
@@ -1080,6 +1092,7 @@ public:
             }
         }
         pthread_mutex_unlock(&global_lock);
+        ZEYES_LOG_ERROR("DEADBEAF render panorama----");
         return result;
     }
 };
