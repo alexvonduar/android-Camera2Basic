@@ -15,8 +15,17 @@ set(fastcv_DIR ${CMAKE_SOURCE_DIR}/../fastcv)
 add_library( fastcv STATIC IMPORTED )
 set_target_properties( fastcv PROPERTIES IMPORTED_LOCATION ${fastcv_DIR}/libs/${ANDROID_ABI}/libfastcv.a )
 
-set(opencv_DIR ${CMAKE_SOURCE_DIR}/../opencv)
+set(eigen3_INC ${CMAKE_SOURCE_DIR}/../eigen3/${ANDROID_ABI}/include/eigen3 )
+set(bitplanes_DIR ${CMAKE_SOURCE_DIR}/../bitplanes)
+set(bitplanes_INC ${bitplanes_DIR}/${ANDROID_ABI}/include)
 
+add_library(bitplanes_core STATIC IMPORTED )
+set_target_properties(bitplanes_core PROPERTIES IMPORTED_LOCATION ${bitplanes_DIR}/${ANDROID_ABI}/lib/libbitplanes_core.a )
+
+add_library(bitplanes_utils STATIC IMPORTED )
+set_target_properties(bitplanes_utils PROPERTIES IMPORTED_LOCATION ${bitplanes_DIR}/${ANDROID_ABI}/lib/libbitplanes_utils.a )
+
+set(opencv_DIR ${CMAKE_SOURCE_DIR}/../opencv)
 set(opencv_INC ${opencv_DIR}/${ANDROID_ABI}/sdk/native/jni/include)
 
 add_library( cvvideo STATIC IMPORTED )
@@ -128,9 +137,9 @@ target_link_libraries( # Specifies the target library.
 
                        # Links the target library to the log library
                        # included in the NDK.
-                       ${log-lib} ${z-lib} android jnigraphics cvvideo cvfeatures2d cvcalib3d cvimgproc cvimgcodecs
+                       ${log-lib} ${z-lib} android jnigraphics bitplanes_core bitplanes_utils cvvideo cvfeatures2d cvcalib3d cvimgproc cvimgcodecs
                        cvhighgui cvphoto cvcore  cvflann cvhal cvimf cvjpeg cvjasper cvwebp cvpng cvtiff cpufeatures
                        libturbojpeg fastcv )
 
 
-target_include_directories(imagetracker PRIVATE ${opencv_INC} ${jpeg_INC} ${CMAKE_SOURCE_DIR}/src/main/cpp/gms)
+target_include_directories(imagetracker PRIVATE ${opencv_INC} ${jpeg_INC} ${CMAKE_SOURCE_DIR}/src/main/cpp/gms ${bitplanes_INC} ${eigen3_INC})
