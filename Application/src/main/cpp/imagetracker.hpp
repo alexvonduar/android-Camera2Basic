@@ -10,6 +10,12 @@ using namespace std;
 
 #include "gms_matcher.h"
 
+#include <bitplanes/core/bitplanes_tracker_pyramid.h>
+#include <bitplanes/core/homography.h>
+#include <bitplanes/core/viz.h>
+
+#include <bitplanes/utils/timer.h>
+
 typedef struct _Frame {
     cv::Mat original;
     cv::Mat rgb;
@@ -525,6 +531,19 @@ void recalcHomography(cv::Mat &homo, const int &w, const int &h, const float &sc
 
 static bool save_pano = false;
 
+static inline bp::AlgorithmParameters GetDefaultParams()
+{
+    bp::AlgorithmParameters params;
+    params.num_levels = 1;
+    params.max_iterations = 50;
+    params.parameter_tolerance = 5e-5;
+    params.function_tolerance = 1e-4;
+    params.verbose = false;
+    params.sigma = 2.0;
+    params.subsampling = 1;
+    return params;
+}
+
 class Tracker {
     ORB_SLAM2::ORBextractor *orb_extractor; //(1000, 1.2, 8, 20, 7);
     cv::Ptr<cv::BFMatcher> matcher;
@@ -538,6 +557,9 @@ class Tracker {
     //cv::Rect m_pano_rect;
     //cv::Mat m_pano_global_homo;
     int m_num_pano_frames;
+    bp::BitPlanesTrackerPyramid<bp::Homography> m_bp_tracker; //(GetDefaultParams());
+    cv::Rect m_bp_box;
+    bp::Result m_bp_result;//(bp::Matrix33f::Identity());
 
     void get_bounding_box(const int &index, cv::Rect &rect) {
         cv::Mat inv_homo = all_frames[keyframe_list[index]]->pano_homo.inv();
@@ -805,9 +827,60 @@ class Tracker {
         return m_valid_overlap;
     }
 
+    bool update_hintbox(cv::Rect& rect, const float * H) {
+        pthread_mutex_lock(&hintbox_mutex);
+        if (tracking_list.size()) {
+            //
+            int index = tracking_list.back();
+            Frame *p_frame = all_frames[index];
+            //std::vector<cv::Point2f> corners;
+            int width = p_frame->gray.cols;
+            int height = p_frame->gray.rows;
+            //create_corners4(width, height, corners);
+            //std::vector<cv::Point2f> warped_corners;
+
+            std::vector<cv::Point2f> corners;
+            RectToPoints(rect, H, corners);
+            //std::array<cv::Point2f, 4> warped_corners;
+            //cv::Mat homo = p_frame->homo.inv();
+            cv::Mat rotate = ROTATE_90;
+            if (p_frame->rotation == 90) {
+                rotate.at<float>(0, 2) = height;
+                //homo = rotate * homo;
+            } else if (p_frame->rotation == 0) {
+                //
+            } else {
+                assert(0);
+            }
+            //perspective_transform(p_frame->gray.cols, p_frame->gray.rows, homo, warped_corners);
+            cv::perspectiveTransform(corners, m_hintboxf, rotate);
+            if (p_frame->rotation == 90) {
+            //    cv::perspectiveTransform(corners, corners, rotate);
+                int temp = width;
+                width = height;
+                height = temp;
+            }
+            //float overlap = cv::intersectConvexConvex(warped_corners, corners, m_hintboxf);
+            for (int i = 0; i < m_hintboxf.size(); ++i) {
+                m_hintboxf[i].x /= width;
+                m_hintboxf[i].y /= height;
+            }
+            m_valid_overlap = true;
+            m_valid_hintbox = true;
+        } else {
+            m_hintboxi.clear();
+            m_hintboxf.clear();
+            m_valid_overlap = false;
+            m_valid_hintbox = false;
+        }
+        pthread_mutex_unlock(&hintbox_mutex);
+        return m_valid_overlap;
+    }
+
     Tracker() {
         orb_extractor = new ORB_SLAM2::ORBextractor(500, 1.2, 4, 20, 7);
         matcher = cv::BFMatcher::create(cv::NORM_HAMMING);
+        m_bp_tracker = bp::BitPlanesTrackerPyramid<bp::Homography>(GetDefaultParams());
         clear();
     }
 
@@ -1069,6 +1142,19 @@ public:
                 m_num_pano_frames = 0;
                 //update_panorama();
             }
+
+            if (result == true) {
+                int w = new_frame->gray.cols;
+                int h = new_frame->gray.rows;
+                //int bw = w / 4;
+                //int bh = h / 4;
+                m_bp_box.x = w * 3 / 8;
+                m_bp_box.y = h * 3 / 8;
+                m_bp_box.width = w / 4;
+                m_bp_box.height = h / 4;
+                m_bp_tracker.setTemplate(new_frame->gray, m_bp_box);
+                m_bp_result = bp::Result(bp::Matrix33f::Identity());
+            }
             clear_tracking_list();
             //update_panorama();
         } else {
@@ -1088,7 +1174,16 @@ public:
                     clear_tracking_list();
                     store_one_free(new_frame);
                 }
+#if 1 // USE_BITPLANES
+                {
+                    ZEYES_LOG_ERROR("DEADBEAF bp start ----");
+                    m_bp_result = m_bp_tracker.track(new_frame->gray, m_bp_result.T);
+                    ZEYES_LOG_ERROR("DEADBEAF bp stop -----");
+                    result = update_hintbox(m_bp_box, m_bp_result.T.data());
+                }
+#else
                 result = update_hintbox();
+#endif
             }
         }
         pthread_mutex_unlock(&global_lock);
