@@ -713,7 +713,8 @@ public class Camera2BasicFragment extends Fragment
                     mTextureView.setAspectRatio(
                             mPreviewSize.getHeight(), mPreviewSize.getWidth());
                 }
-                mDrawTexture.setRectangle(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+                //mDrawTexture.setRectangle(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+                mDrawTexture.setRectangle(height, (height * mPreviewSize.getHeight()) / mPreviewSize.getWidth());
 
                 mPreviewReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(),
                         ImageFormat.YUV_420_888, /*maxImages*/2);
