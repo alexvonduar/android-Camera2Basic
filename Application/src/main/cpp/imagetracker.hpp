@@ -878,7 +878,7 @@ class Tracker {
     }
 
     Tracker() {
-        orb_extractor = new ORB_SLAM2::ORBextractor(500, 1.2, 4, 20, 7);
+        orb_extractor = new ORB_SLAM2::ORBextractor(2000, 1.2, 4, 30, 1);
         matcher = cv::BFMatcher::create(cv::NORM_HAMMING);
         m_bp_tracker = bp::BitPlanesTrackerPyramid<bp::Homography>(GetDefaultParams());
         clear();
