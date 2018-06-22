@@ -277,10 +277,10 @@ void tracking_frames_optflow(Frame *last, Frame *curr) {
     }
 }
 
-static bool save_matching = false;
+static bool save_matching = true;
 
 void pano_frames_orb(ORB_SLAM2::ORBextractor *orb_extractor, cv::Ptr<cv::BFMatcher> &matcher,
-                     Frame *last, Frame *curr) {
+                     Frame *last, Frame *curr, cv::Mat &homo) {
     //
 #if 0
     cv::Mat mask;
@@ -344,11 +344,13 @@ void pano_frames_orb(ORB_SLAM2::ORBextractor *orb_extractor, cv::Ptr<cv::BFMatch
     }
 
     if (v_dmatch.size() < 4) {
-        curr->pano_homo.release();
+        homo.release();
     } else {
         std::vector<cv::KeyPoint> valid_last_kp;
         std::vector<cv::KeyPoint> valid_curr_kp;
+        cv::Mat mask;
 
+#if USE_GMS
         // GMS filter
         int num_inliers = 0;
         std::vector<bool> vbInliers;
@@ -366,39 +368,93 @@ void pano_frames_orb(ORB_SLAM2::ORBextractor *orb_extractor, cv::Ptr<cv::BFMatch
         if (num_inliers < 4) {
             curr->pano_homo.release();
         } else {
-
             for (int k = 0; k < gms_match.size(); ++k) {
                 valid_last_kp.push_back(last->keypoints[gms_match[k].queryIdx]);
                 valid_curr_kp.push_back(curr->keypoints[gms_match[k].trainIdx]);
             }
+#else
+        {
+            for (int k = 0; k < v_dmatch.size(); ++k) {
+                valid_last_kp.push_back(last->keypoints[v_dmatch[k].queryIdx]);
+                valid_curr_kp.push_back(curr->keypoints[v_dmatch[k].trainIdx]);
+            }
+#endif
             std::vector<cv::Point2f> valid_last_points;
             cv::KeyPoint::convert(valid_last_kp, valid_last_points);
             std::vector<cv::Point2f> valid_curr_points;
             cv::KeyPoint::convert(valid_curr_kp, valid_curr_points);
-            cv::Mat mask;
-            cv::Mat homo = cv::findHomography(valid_curr_points, valid_last_points, CV_RANSAC, 3.0,
-                                              mask, 500, 0.999);
+            cv::Mat homo_tmp = cv::findHomography(valid_curr_points, valid_last_points, CV_RANSAC,
+                                                  2.0,
+                                                  mask, 500, 0.999);
             assert(mask.rows <= valid_curr_points.size());
             assert(valid_last_points.size() == valid_curr_points.size());
-            if (homo.empty()) {
-                curr->pano_homo = cv::Mat();
+            if (!homo_tmp.empty()) {
+                homo_tmp.convertTo(homo, CV_32F);
             } else {
-                homo.convertTo(curr->pano_homo, CV_32F);
+                homo.release();
             }
         }
 
         if (save_matching) {
             cv::Mat matchings;
+#if USE_GMS
             cv::drawMatches(last->rgb, last->keypoints, curr->rgb, curr->keypoints,
                             gms_match, matchings);
+#else
+            std::vector<cv::DMatch> homo_match;
+            for (int k = 0; k < mask.rows; ++k) {
+                if (mask.at<uchar>(k, 0)) {
+                    homo_match.push_back(v_dmatch[k]);
+                }
+            }
+            cv::drawMatches(last->rgb, last->keypoints, curr->rgb, curr->keypoints,
+                            homo_match, matchings);
+#endif
             cv::imwrite(
                     "/storage/emulated/0/Android/data/com.example.android.camera2basic/files/matching.jpg",
                     matchings);
-            save_matching = false;
+            //save_matching = false;
         }
 
     }
 #endif
+}
+
+typedef struct _ECC_PARAMES
+{
+    Frame * last;
+    Frame * curr;
+    cv::Mat * homo;
+} ECC_PARAMS;
+
+void *ecc_thread_func(void * _p) {
+    ZEYES_LOG_ERROR("DEADBEAF ecc++++");
+    double * r = new double;
+    ECC_PARAMS * p =  (ECC_PARAMS *)_p;
+    *r = cv::findTransformECC(p->curr->gray, p->last->gray,
+                                    *(p->homo), cv::MOTION_HOMOGRAPHY, cv::TermCriteria(
+                    cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.001));
+    ZEYES_LOG_ERROR("DEADBAF ecc---- %f", *r);
+    return (void *)r;
+}
+
+typedef struct _ORB_PARAMS
+{
+    ORB_SLAM2::ORBextractor * orb_extractor;
+    cv::Ptr<cv::BFMatcher> matcher;
+    Frame * last;
+    Frame * curr;
+    cv::Mat * homo;
+} ORB_PARAMS;
+
+void * orb_thread_func(void * _p)
+{
+    ZEYES_LOG_ERROR("DEADBEAF orb++++");
+    ORB_PARAMS * p = (ORB_PARAMS *)_p;
+    pano_frames_orb(p->orb_extractor, p->matcher,
+                         p->last, p->curr, *(p->homo));
+    ZEYES_LOG_ERROR("DEADBEAF orb----");
+    return NULL;
 }
 
 static inline bool is_aspect_ratio(const int &a, const int &b, const int &asp_l, const int &asp_s) {
@@ -531,11 +587,10 @@ void recalcHomography(cv::Mat &homo, const int &w, const int &h, const float &sc
 
 static bool save_pano = false;
 
-static inline bp::AlgorithmParameters GetDefaultParams()
-{
+static inline bp::AlgorithmParameters GetDefaultParams() {
     bp::AlgorithmParameters params;
-    params.num_levels = 1;
-    params.max_iterations = 50;
+    params.num_levels = 2;
+    params.max_iterations = 100;
     params.parameter_tolerance = 5e-5;
     params.function_tolerance = 1e-4;
     params.verbose = false;
@@ -827,7 +882,7 @@ class Tracker {
         return m_valid_overlap;
     }
 
-    bool update_hintbox(cv::Rect& rect, const float * H) {
+    bool update_hintbox(cv::Rect &rect, const float *H) {
         pthread_mutex_lock(&hintbox_mutex);
         if (tracking_list.size()) {
             //
@@ -855,7 +910,7 @@ class Tracker {
             //perspective_transform(p_frame->gray.cols, p_frame->gray.rows, homo, warped_corners);
             cv::perspectiveTransform(corners, m_hintboxf, rotate);
             if (p_frame->rotation == 90) {
-            //    cv::perspectiveTransform(corners, corners, rotate);
+                //    cv::perspectiveTransform(corners, corners, rotate);
                 int temp = width;
                 width = height;
                 height = temp;
@@ -907,6 +962,51 @@ class Tracker {
                 keyframe_list.size(), tracking_list.size(),
                 free_list.size(), all_frames.size());
 
+    }
+
+    void match_keyframe(Frame *last, Frame *curr, cv::Mat &homo) {
+        pthread_t ecc_t;
+        pthread_t orb_t;
+        ECC_PARAMS ecc_p;
+        ORB_PARAMS orb_p;
+        cv::Mat ecc_homo;
+        cv::Mat orb_homo;
+        ecc_p.curr = curr;
+        ecc_p.last = last;
+        ecc_p.homo = &ecc_homo;
+        orb_p.orb_extractor = orb_extractor;
+        orb_p.matcher = matcher;
+        orb_p.curr = curr;
+        orb_p.last = last;
+        orb_p.homo = &orb_homo;
+
+#if 0
+#if 1
+        double r = cv::findTransformECC(curr->gray, last->gray,
+                                        homo, cv::MOTION_HOMOGRAPHY, cv::TermCriteria(
+                        cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30, 0.001));
+        if (r < 0.86) {
+#endif
+            pano_frames_orb(orb_extractor, matcher, last, curr, homo);
+#if 1
+        }
+#endif
+#endif
+        ZEYES_LOG_ERROR("DEADBEAF start matching ++++");
+        pthread_create(&ecc_t, NULL, ecc_thread_func, &ecc_p);
+        pthread_create(&orb_t, NULL, orb_thread_func, &orb_p);
+        void * ecc_ret;
+        pthread_join(ecc_t, &ecc_ret);
+        void * orb_ret;
+        pthread_join(orb_t, &orb_ret);
+        double ecc = (*(double *)ecc_ret);
+        delete ecc_ret;
+        ZEYES_LOG_ERROR("DEADBEAF stop matching ++++ ecc %f", ecc);
+        if (ecc < 0.86) {
+            homo = orb_homo;
+        } else {
+            homo = ecc_homo;
+        }
     }
 
 public:
@@ -1106,28 +1206,22 @@ public:
             if (keyframe_list.size()) {
                 // map with last keyframe
                 Frame *last = all_frames[keyframe_list.back()];
-#if 0
-                double r = cv::findTransformECC(new_frame->gray, last->gray,
-                                                new_frame->pano_homo, cv::MOTION_HOMOGRAPHY);
-                if (r < 0.86) {
-#endif
-                pano_frames_orb(orb_extractor, matcher, last, new_frame);
-#if 0
-                }
-#endif
+                // TODO:
+                cv::Mat homo;
+                match_keyframe(last, new_frame, homo);
 
-                if (new_frame->pano_homo.empty()) {
+                if (homo.empty()) {
                     ZEYES_LOG_ERROR("DEADBEAF empty homography");
                     store_one_free(new_frame);
                     result = false;
                 } else {
-                    if (isStrangPolygon(new_frame->pano_homo, new_frame->rgb, last->rgb)) {
+                    if (isStrangPolygon(homo, new_frame->rgb, last->rgb)) {
                         //clear_tracking_list();
                         ZEYES_LOG_ERROR("DEADBEAF strange polygon");
                         store_one_free(new_frame);
                         result = false;
                     } else {
-                        new_frame->pano_homo = last->pano_homo * new_frame->pano_homo;
+                        new_frame->pano_homo = last->pano_homo * homo;
                         //recalcHomography(new_frame->pano_homo, new_frame->gray.cols,
                         //                 new_frame->gray.rows, PANO_SCALE_FACTOR);
                         store_keyframe(new_frame);
@@ -1174,7 +1268,7 @@ public:
                     clear_tracking_list();
                     store_one_free(new_frame);
                 }
-#if 1 // USE_BITPLANES
+#if 0 // USE_BITPLANES
                 {
                     ZEYES_LOG_ERROR("DEADBEAF bp start ----");
                     m_bp_result = m_bp_tracker.track(new_frame->gray, m_bp_result.T);
